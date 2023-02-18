@@ -23,7 +23,7 @@ func main() {
 	})
 
 	app.Get("/ws/:session",
-		func(c *fiber.Ctx) error {
+		func(c *fiber.Ctx) error { // check if a client can establish websocket connection
 			if ws.IsWebSocketUpgrade(c) {
 				c.Next()
 			}

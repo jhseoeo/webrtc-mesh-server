@@ -6,6 +6,8 @@ import (
 	ws "github.com/gofiber/websocket/v2"
 )
 
+// When a client has connected, client send its uuid.
+// Get uuid from this message.
 func getUUID(conn *ws.Conn) (MessageData, UUIDType, error) {
 	var messageData MessageData
 	err := conn.ReadJSON(&messageData)
@@ -23,6 +25,7 @@ func getUUID(conn *ws.Conn) (MessageData, UUIDType, error) {
 
 }
 
+// Send users list in the session to the client
 func sendUserList(cds *ClientDataStore, conn *ws.Conn, session SessionName) error {
 	users := cds.GetSessionData(session)
 
@@ -57,7 +60,8 @@ func createLeaveMessage(uuid UUIDType) MessageData {
 	}
 }
 
-func WebsocketConnectionLoop(cds *ClientDataStore, hub *MessageHub, conn *ws.Conn) {
+// Websocket Session Loop for each client
+func WebsocketConnectionLoop(cds *ClientDataStore, hub *Hub, conn *ws.Conn) {
 	session := SessionName(conn.Params("session"))
 	joinMessage, uuid, err := getUUID(conn)
 	if err != nil {
@@ -66,20 +70,20 @@ func WebsocketConnectionLoop(cds *ClientDataStore, hub *MessageHub, conn *ws.Con
 	}
 
 	fmt.Printf("user %s joined on %s\n", uuid, session)
-	hub.SendBroadcastMessage(session, uuid, joinMessage)
+	hub.SendBroadcastMessage(session, uuid, joinMessage) // broadcast current users uuid
 
 	client := Client{conn: conn}
-	hub.RegisterUser(session, uuid, client)
+	hub.RegisterUser(session, uuid, client) // add current user's information to users list
 
-	err = sendUserList(cds, conn, session)
+	err = sendUserList(cds, conn, session) // send users list to user
 	if err != nil {
 		fmt.Println("an error occured sending user list:", err)
 		conn.Close()
 	}
 
-	defer func() {
-		hub.SendBroadcastMessage(session, uuid, createLeaveMessage(uuid))
-		hub.UnregisterUser(session, uuid, client)
+	defer func() { // when user leaves
+		hub.SendBroadcastMessage(session, uuid, createLeaveMessage(uuid)) // broadcast current users uuid
+		hub.UnregisterUser(session, uuid, client)                         // delete current user's information from users list
 		conn.Close()
 	}()
 

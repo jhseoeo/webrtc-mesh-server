@@ -8,20 +8,26 @@ import (
 
 type SessionName string
 type UUIDType string
+
+// Client struct type. you can add any data here
 type Client struct {
 	conn *ws.Conn
 }
+
+// Datastore of client
 type ClientDataStore struct {
 	mutex     sync.RWMutex
 	dataStore map[SessionName]map[UUIDType]Client
 }
 
+// Create new datastore
 func MakeClientDataStore() *ClientDataStore {
 	return &ClientDataStore{
 		dataStore: make(map[SessionName]map[UUIDType]Client),
 	}
 }
 
+// Get data of users in session from datastore
 func (ds *ClientDataStore) GetSessionData(session SessionName) map[UUIDType]Client {
 	ds.mutex.RLock()
 	defer ds.mutex.RUnlock()
@@ -34,7 +40,8 @@ func (ds *ClientDataStore) GetSessionData(session SessionName) map[UUIDType]Clie
 	return res
 }
 
-func (ds *ClientDataStore) IterateSession(session SessionName, iterFunc func(uuid UUIDType, client Client) error) error {
+// Run iterate job to keep consistency
+func (ds *ClientDataStore) ForEachUser(session SessionName, iterFunc func(uuid UUIDType, client Client) error) error {
 	ds.mutex.RLock()
 	defer ds.mutex.RUnlock()
 
@@ -47,6 +54,7 @@ func (ds *ClientDataStore) IterateSession(session SessionName, iterFunc func(uui
 	return nil
 }
 
+// Get data of the user from datastore
 func (ds *ClientDataStore) GetClientData(session SessionName, uuid UUIDType) Client {
 	ds.mutex.RLock()
 	defer ds.mutex.RUnlock()
@@ -54,6 +62,7 @@ func (ds *ClientDataStore) GetClientData(session SessionName, uuid UUIDType) Cli
 	return ds.dataStore[session][uuid]
 }
 
+// Set user data in datastore
 func (ds *ClientDataStore) SetUserData(session SessionName, uuid UUIDType, client Client) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
@@ -65,6 +74,7 @@ func (ds *ClientDataStore) SetUserData(session SessionName, uuid UUIDType, clien
 	ds.dataStore[session][uuid] = client
 }
 
+// Delete data of the user from datastore
 func (ds *ClientDataStore) DeleteUserData(session SessionName, uuid UUIDType) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
