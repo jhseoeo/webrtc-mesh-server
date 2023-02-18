@@ -1,4 +1,4 @@
-module github.com/junhyuk0801/go-webrtc-signaling-server
+module github.com/junhyuk0801/webrtc-mesh-server
 
 go 1.18
 

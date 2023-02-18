@@ -1,35 +1,44 @@
 var localVideo;
 var localStream;
-var remoteVideo;
-var peerConnection;
-var uuid;
+var localuuid;
 var serverConnection;
-
+var videos;
 var peerConnectionConfig = {
     iceServers: [{ urls: "stun:stun.stunprotocol.org:3478" }, { urls: "stun:stun.l.google.com:19302" }],
 };
+var peers = {};
+var acknowledged = false;
 
 function pageReady() {
-    uuid = createUUID();
+    localuuid = createUUID();
 
     localVideo = document.getElementById("localVideo");
-    remoteVideo = document.getElementById("remoteVideo");
+    videos = document.getElementById("videos");
 
-    let address = "ws://" + window.location.hostname + ":3000" + "/ws";
+    let path = window.location.pathname.split("/")[1];
+    let address = "ws://" + window.location.hostname + ":3005" + "/ws/" + path;
     console.log("tries establish websocket connection on " + address);
     serverConnection = new WebSocket(address);
     serverConnection.onmessage = gotMessageFromServer;
+    serverConnection.onopen = async () => {
+        if (navigator.mediaDevices.getUserMedia) {
+            await navigator.mediaDevices
+                .getUserMedia(constraints)
+                .then(getUserMediaSuccess)
+                .catch((e) => {
+                    errorHandler(e, null);
+                });
+        } else {
+            alert("Your browser does not support getUserMedia API");
+            return;
+        }
+        serverConnection.send(JSON.stringify({ type: "join", data: null, srcuuid: localuuid, dstuuid: "" }));
+    };
 
     var constraints = {
         video: true,
         audio: true,
     };
-
-    if (navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia(constraints).then(getUserMediaSuccess).catch(errorHandler);
-    } else {
-        alert("Your browser does not support getUserMedia API");
-    }
 }
 
 function getUserMediaSuccess(stream) {
@@ -37,66 +46,113 @@ function getUserMediaSuccess(stream) {
     localVideo.srcObject = stream;
 }
 
-function start(isCaller) {
-    peerConnection = new RTCPeerConnection(peerConnectionConfig);
-    peerConnection.onicecandidate = gotIceCandidate;
-    peerConnection.ontrack = gotRemoteStream;
+async function start(isCaller, uuid_) {
+    if (isCaller) console.log("establish connection with existing users");
+    else console.log("establish connection with new user");
+
+    let peerConnection = new RTCPeerConnection(peerConnectionConfig);
+    peerConnection.onicecandidate = (e) => {
+        gotIceCandidate(e, uuid_);
+    };
+    peerConnection.ontrack = (e) => {
+        gotRemoteStream(e, uuid_);
+    };
     peerConnection.addStream(localStream);
 
     if (isCaller) {
-        peerConnection.createOffer().then(createdDescription).catch(errorHandler);
+        peerConnection
+            .createOffer()
+            .then((description) => {
+                return createdDescription(description, uuid_);
+            })
+            .catch((e) => errorHandler(e, uuid_));
     }
+
+    return peerConnection;
 }
 
-function gotMessageFromServer(message) {
-    if (!peerConnection) start(false);
-
+async function gotMessageFromServer(message) {
     var data = JSON.parse(message.data);
-    // Ignore messages from ourself
-    if (data.uuid == uuid) return;
 
     console.log(data);
 
-    if (data.sdp) {
-        console.log(peerConnection);
-        peerConnection
-            .setRemoteDescription(new RTCSessionDescription(data.sdp))
+    if (data.type == "users") {
+        data.data.users.forEach(async (user) => {
+            peers[user] = { rtc: await start(true, user) };
+        });
+    } else if (data.type == "join") {
+        peers[data.srcuuid] = { rtc: await start(false, data.srcuuid) };
+    } else if (data.type == "sdp") {
+        peers[data.srcuuid].rtc
+            .setRemoteDescription(new RTCSessionDescription(data.data.sdp))
             .then(function () {
+                console.log("set remote description");
                 // Only create answers in response to offers
-                if (data.sdp.type == "offer") {
-                    peerConnection.createAnswer().then(createdDescription).catch(errorHandler);
+                if (data.data.sdp.type == "offer") {
+                    peers[data.srcuuid].rtc
+                        .createAnswer()
+                        .then((description) => {
+                            createdDescription(description, data.srcuuid);
+                        })
+                        .catch((e) => {
+                            errorHandler(e, data.srcuuid);
+                        });
                 }
             })
-            .catch(errorHandler);
-    } else if (data.ice) {
-        peerConnection.addIceCandidate(new RTCIceCandidate(data.ice)).catch(errorHandler);
+            .catch((e) => {
+                errorHandler(e, data.srcuuid);
+            });
+    } else if (data.type == "ice") {
+        peers[data.srcuuid].rtc.addIceCandidate(new RTCIceCandidate(data.data.ice)).catch((e) => {
+            errorHandler(e, data.srcuuid);
+        });
+    } else if (data.type == "leave") {
+        peers[data.srcuuid].video.remove();
+        delete peers[data.srcuuid];
     }
 }
 
-function gotIceCandidate(event) {
+function gotIceCandidate(event, uuid_) {
     if (event.candidate != null) {
-        serverConnection.send(JSON.stringify({ ice: event.candidate, uuid: uuid }));
+        serverConnection.send(
+            JSON.stringify({ type: "ice", data: { ice: event.candidate }, srcuuid: localuuid, dstuuid: uuid_ })
+        );
     }
 }
 
-function createdDescription(description) {
-    console.log("got description", description);
-
-    peerConnection
+function createdDescription(description, uuid_) {
+    peers[uuid_].rtc
         .setLocalDescription(description)
         .then(function () {
-            serverConnection.send(JSON.stringify({ sdp: peerConnection.localDescription, uuid: uuid }));
+            console.log("set local description");
+            serverConnection.send(
+                JSON.stringify({
+                    type: "sdp",
+                    data: { sdp: peers[uuid_].rtc.localDescription },
+                    srcuuid: localuuid,
+                    dstuuid: uuid_,
+                })
+            );
         })
         .catch(errorHandler);
 }
 
-function gotRemoteStream(event) {
-    console.log("got remote stream");
-    remoteVideo.srcObject = event.streams[0];
+function gotRemoteStream(event, uuid_) {
+    console.log("got remote stream", event);
+    if (!peers[uuid_].video) {
+        peers[uuid_].mediastream = new MediaStream();
+        peers[uuid_].video = document.createElement("video");
+        peers[uuid_].video.style = "width: 40%;";
+        peers[uuid_].video.autoplay = true;
+        peers[uuid_].video.srcObject = peers[uuid_].mediastream;
+        videos.appendChild(peers[uuid_].video);
+    }
+
+    peers[uuid_].mediastream.addTrack(event.track);
 }
 
-function errorHandler(error) {
-    console.log(error);
+function errorHandler(error, uuid_) {
+    console.log(uuid_, error);
 }
 
 // Taken from http://stackoverflow.com/a/105074/515584

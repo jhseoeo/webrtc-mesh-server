@@ -1,0 +1,76 @@
+package main
+
+import (
+	"sync"
+
+	ws "github.com/gofiber/websocket/v2"
+)
+
+type SessionName string
+type UUIDType string
+type Client struct {
+	conn *ws.Conn
+}
+type ClientDataStore struct {
+	mutex     sync.RWMutex
+	dataStore map[SessionName]map[UUIDType]Client
+}
+
+func MakeClientDataStore() *ClientDataStore {
+	return &ClientDataStore{
+		dataStore: make(map[SessionName]map[UUIDType]Client),
+	}
+}
+
+func (ds *ClientDataStore) GetSessionData(session SessionName) map[UUIDType]Client {
+	ds.mutex.RLock()
+	defer ds.mutex.RUnlock()
+
+	res := make(map[UUIDType]Client, len(ds.dataStore[session]))
+	for key, val := range ds.dataStore[session] {
+		res[key] = val
+	}
+
+	return res
+}
+
+func (ds *ClientDataStore) IterateSession(session SessionName, iterFunc func(uuid UUIDType, client Client) error) error {
+	ds.mutex.RLock()
+	defer ds.mutex.RUnlock()
+
+	for key, val := range ds.dataStore[session] {
+		if err := iterFunc(key, val); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (ds *ClientDataStore) GetClientData(session SessionName, uuid UUIDType) Client {
+	ds.mutex.RLock()
+	defer ds.mutex.RUnlock()
+
+	return ds.dataStore[session][uuid]
+}
+
+func (ds *ClientDataStore) SetUserData(session SessionName, uuid UUIDType, client Client) {
+	ds.mutex.Lock()
+	defer ds.mutex.Unlock()
+
+	if _, ok := ds.dataStore[session]; !ok {
+		ds.dataStore[session] = make(map[UUIDType]Client)
+	}
+
+	ds.dataStore[session][uuid] = client
+}
+
+func (ds *ClientDataStore) DeleteUserData(session SessionName, uuid UUIDType) {
+	ds.mutex.Lock()
+	defer ds.mutex.Unlock()
+
+	delete(ds.dataStore[session], uuid)
+	if len(ds.dataStore[session]) == 0 {
+		delete(ds.dataStore, session)
+	}
+}
