@@ -16,14 +16,16 @@ type Client struct {
 
 // Datastore of client
 type ClientDataStore struct {
-	mutex     sync.RWMutex
-	dataStore map[SessionName]map[UUIDType]Client
+	mutex        sync.RWMutex
+	sessionMutex map[SessionName]sync.RWMutex
+	dataStore    map[SessionName]map[UUIDType]Client
 }
 
 // Create new datastore
 func MakeClientDataStore() *ClientDataStore {
 	return &ClientDataStore{
-		dataStore: make(map[SessionName]map[UUIDType]Client),
+		sessionMutex: make(map[SessionName]sync.RWMutex),
+		dataStore:    make(map[SessionName]map[UUIDType]Client),
 	}
 }
 
@@ -38,20 +40,6 @@ func (ds *ClientDataStore) GetSessionData(session SessionName) map[UUIDType]Clie
 	}
 
 	return res
-}
-
-// Run iterate job to keep consistency
-func (ds *ClientDataStore) ForEachUser(session SessionName, iterFunc func(uuid UUIDType, client Client) error) error {
-	ds.mutex.RLock()
-	defer ds.mutex.RUnlock()
-
-	for key, val := range ds.dataStore[session] {
-		if err := iterFunc(key, val); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // Get data of the user from datastore

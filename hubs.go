@@ -39,7 +39,9 @@ type Hub struct {
 
 // Send broadcast message to every user in session
 func sendBroadcastMessage(cds *ClientDataStore, mi MessageInfo) error {
-	err := cds.ForEachUser(mi.Session, func(uuid UUIDType, client Client) error {
+	clients := cds.GetSessionData(mi.Session)
+
+	for uuid, client := range clients {
 		if uuid != mi.UUID {
 			err := client.conn.WriteJSON(mi.Message)
 			if err != nil {
@@ -49,11 +51,9 @@ func sendBroadcastMessage(cds *ClientDataStore, mi MessageInfo) error {
 				return err
 			}
 		}
+	}
 
-		return nil
-	})
-
-	return err
+	return nil
 }
 
 // Send signaling message to specific user in session
