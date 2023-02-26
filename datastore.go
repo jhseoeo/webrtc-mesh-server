@@ -11,64 +11,59 @@ type UUIDType string
 
 // Client struct type. you can add any data here
 type Client struct {
-	conn *ws.Conn
+	Conn *ws.Conn
 }
 
 // Datastore of client
-type ClientDataStore struct {
-	mutex        sync.RWMutex
-	sessionMutex map[SessionName]sync.RWMutex
-	dataStore    map[SessionName]map[UUIDType]Client
+type SessionDataStore struct {
+	mutex     sync.RWMutex
+	dataStore map[UUIDType]Client
 }
 
 // Create new datastore
-func MakeClientDataStore() *ClientDataStore {
-	return &ClientDataStore{
-		sessionMutex: make(map[SessionName]sync.RWMutex),
-		dataStore:    make(map[SessionName]map[UUIDType]Client),
+func MakeSessionDataStore() *SessionDataStore {
+	return &SessionDataStore{
+		dataStore: make(map[UUIDType]Client),
 	}
 }
 
 // Get data of users in session from datastore
-func (ds *ClientDataStore) GetSessionData(session SessionName) map[UUIDType]Client {
+func (ds *SessionDataStore) GetSessionData(session SessionName) map[UUIDType]Client {
 	ds.mutex.RLock()
 	defer ds.mutex.RUnlock()
 
-	res := make(map[UUIDType]Client, len(ds.dataStore[session]))
-	for key, val := range ds.dataStore[session] {
-		res[key] = val
+	res := map[UUIDType]Client{}
+	for k, v := range ds.dataStore {
+		res[k] = v
 	}
 
 	return res
 }
 
 // Get data of the user from datastore
-func (ds *ClientDataStore) GetClientData(session SessionName, uuid UUIDType) Client {
+func (ds *SessionDataStore) GetClientData(session SessionName, uuid UUIDType) Client {
 	ds.mutex.RLock()
 	defer ds.mutex.RUnlock()
 
-	return ds.dataStore[session][uuid]
+	return ds.dataStore[uuid]
+}
+
+func (ds *SessionDataStore) IsEmpty(session SessionName) bool {
+	return len(ds.dataStore) == 0
 }
 
 // Set user data in datastore
-func (ds *ClientDataStore) SetUserData(session SessionName, uuid UUIDType, client Client) {
+func (ds *SessionDataStore) SetUserData(session SessionName, uuid UUIDType, client Client) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
 
-	if _, ok := ds.dataStore[session]; !ok {
-		ds.dataStore[session] = make(map[UUIDType]Client)
-	}
-
-	ds.dataStore[session][uuid] = client
+	ds.dataStore[uuid] = client
 }
 
 // Delete data of the user from datastore
-func (ds *ClientDataStore) DeleteUserData(session SessionName, uuid UUIDType) {
+func (ds *SessionDataStore) DeleteUserData(session SessionName, uuid UUIDType) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
 
-	delete(ds.dataStore[session], uuid)
-	if len(ds.dataStore[session]) == 0 {
-		delete(ds.dataStore, session)
-	}
+	delete(ds.dataStore, uuid)
 }

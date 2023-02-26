@@ -7,8 +7,7 @@ import (
 
 func main() {
 
-	clientDataStore := MakeClientDataStore()
-	hub := CreateHub(clientDataStore)
+	hub := CreateHub()
 
 	app := fiber.New()
 
@@ -30,7 +29,7 @@ func main() {
 			return nil
 		},
 		ws.New(func(conn *ws.Conn) {
-			WebsocketConnectionLoop(clientDataStore, hub, conn)
+			WebsocketConnectionLoop(hub, conn)
 		}))
 
 	app.Listen(":3005")
