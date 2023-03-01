@@ -132,7 +132,10 @@ func RunSessionLoop() (*ChannelSet, error) {
 				}
 
 				if clients.IsEmpty(unregisterUser.Session) {
+					channelSet.deleteSession <- true
 					break loop
+				} else {
+					channelSet.deleteSession <- false
 				}
 
 			case messageData := <-channelSet.broadcast:
